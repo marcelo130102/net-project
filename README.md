@@ -9,22 +9,22 @@ The present project aims to use a neural network to process data and send this d
 - Valenzuela, Luigi
 
 ## Protocols
-For now, the following protocol structures are proposed for sending all the corresponding data:
+For now, the following optimized protocol structures are proposed for sending all the corresponding data. Fields have been rearranged to establish a fixed-size header at the beginning of each frame, avoiding dynamic offset calculations in C++ and maximizing transmission efficiency:
 
 ### Normal Data
-|1 B|4 B|Variable|4 B|Variable|4 B|
-|---|---|---|---|---|---|
-|D|Size of data|Data|Size of sequence number|Sequence number|Hash|
+| 1 B | 4 B | 4 B | Variable | 4 B |
+|---|---|---|---|---|
+| D (Type) | Sequence number | Size of data | Data | Hash |
 
 ### ACK
-|1 B|4 B|Variable|4 B|
-|---|---|---|---|
-|A|Size of sequence number|Sequence number|Hash|
+| 1 B | 4 B | 4 B |
+|---|---|---|
+| A (Type) | Sequence number | Hash |
 
 ### NACK
-|1 B|4 B|Variable|4 B|
-|---|---|---|---|
-|N|Size of sequence number|Sequence number|Hash|
+| 1 B | 4 B | 4 B |
+|---|---|---|
+| N (Type) | Sequence number | Hash |
 
 > Note: In all cases, when using fixed-size datagrams of 500 bytes, the missing byte field will have to be filled with padding.
 
@@ -38,6 +38,7 @@ To optimize transmission efficiency and maintain a high goodput within the 500-b
 
 * **Size Allocation:** 4 bytes (32 bits), perfectly matching the designated trailing field in the protocol structures.
 * **Overhead Impact:** It accounts for only **0.8%** of the total 500-byte datagram capacity.
+* **Header Architecture:** By removing the redundant sequence number size field and making the sequence number a fixed 4-byte integer (`uint32_t`), the frame establishes a rigid layout. In the C++ Worker, the first 9 bytes of any incoming packet can be directly mapped to a structure template without complex pointer arithmetic or dynamic memory offsets.
 * **Justification:** Heavy cryptographic hashes (such as MD5 or SHA-256) were discarded to prevent unnecessary computational bottlenecks within the neural network's distributed training loop. CRC32 provides robust mathematical error detection against bit alterations caused by UDP network noise while maintaining near-instantaneous serialization/deserialization execution times in both Python (Master) and C++ (Workers).
 * **Data Integrity Workflow:** The sender computes the CRC32 checksum over all preceding packet fields. The receiver recalculates the checksum upon packet arrival. If a mismatch occurs, corruption is detected, the payload is safely discarded, and a **NACK** frame is triggered.
 
