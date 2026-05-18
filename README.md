@@ -9,7 +9,7 @@ The present project aims to use a neural network to process data and send this d
 - Valenzuela, Luigi
 
 ## Protocols
-For now, the following protocol structures are proposed
+For now, the following protocol structures are proposed for sending all the corresponding data:
 
 ### Normal Data
 |1 B|4 B|Variable|4 B|Variable|4 B|
