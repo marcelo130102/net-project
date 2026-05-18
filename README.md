@@ -26,4 +26,4 @@ For now, the following protocol structures are proposed
 |---|---|---|---|
 |N|Size of sequence number|Sequence number|Hash|
 
-Note: In all cases, when using fixed-size datagrams of 500 bytes, the missing byte field will have to be filled with padding.
+> Note: In all cases, when using fixed-size datagrams of 500 bytes, the missing byte field will have to be filled with padding.
