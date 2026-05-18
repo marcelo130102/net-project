@@ -1,29 +1,53 @@
-# Network and Communications Final Project
----
-The present project aims to use a neural network to process data and send this data by implementing a reliable data transfer (RDT) over UDP using different types of protocols that will be implemented.
+# C++ Calculator Module for Python
 
-## Members
-- Calle, Maria
-- Fuentes, Rodrigo
-- Surco, Marcelo
-- Valenzuela, Luigi
+This is a simple example of how to create a C++ module that can be used in Python using pybind11.
 
-## Protocols
-For now, the following protocol structures are proposed
+## Requirements
 
-### Normal Data
-|1 B|4 B|Variable|4 B|Variable|4 B|
-|---|---|---|---|---|---|
-|D|Size of data|Data|Size of sequence number|Sequence number|Hash|
+- Python 3.6 or higher
+- A C++ compiler (MSVC on Windows, GCC on Linux, or Clang on macOS)
+- pybind11
+- setuptools
 
-### ACK
-|1 B|4 B|Variable|4 B|
-|---|---|---|---|
-|A|Size of sequence number|Sequence number|Hash|
+## Installation
 
-### NACK
-|1 B|4 B|Variable|4 B|
-|---|---|---|---|
-|N|Size of sequence number|Sequence number|Hash|
+1. First, install pybind11:
+```bash
+pip install pybind11
+```
 
-Note: In all cases, when using fixed-size datagrams of 500 bytes, the missing byte field will have to be filled with padding.
+2. Build the module:
+```bash
+python setup.py build_ext --inplace
+```
+
+## Usage
+
+After building the module, you can use it in Python like this:
+
+```python
+import calculator
+
+# Add two numbers
+result = calculator.add(5.0, 3.0)
+print(result)  # Output: 8.0
+
+# Subtract two numbers
+result = calculator.subtract(10.0, 4.0)
+print(result)  # Output: 6.0
+
+# Multiply two numbers
+result = calculator.multiply(6.0, 7.0)
+print(result)  # Output: 42.0
+
+# Divide two numbers
+result = calculator.divide(15.0, 3.0)
+print(result)  # Output: 5.0
+```
+
+## Testing
+
+Run the test file to see the calculator in action:
+```bash
+python test_calculator.py
+``` 
