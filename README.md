@@ -13,7 +13,7 @@ For now, the following optimized protocol structures are proposed for sending al
 
 ### Normal Data
 | 1 B | 4 B | 2 B | 2 B | 4 B | Variable | 4 B |
-|---|---|---|---|---|
+|---|---|---|---|---|---|---|
 | D (Type) | Sequence number | Fragment Number | Total Fragments |  Size of data | Data | Hash(CRC32) |
 
 ### ACK
