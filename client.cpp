@@ -40,7 +40,7 @@ struct DatagramInfo
 
 
 mutex pendingFragmentsMutex;
-//CLIENTES
+
 
 
 
@@ -117,6 +117,7 @@ void sendDataPacket(
         );
 
 
+
     memcpy(
         datagram + CRC_OFFSET,
         &crc,
@@ -133,6 +134,13 @@ void sendDataPacket(
         sizeof(serverAddr)
     );
 }
+
+
+
+
+
+
+//ACK Y NACK(2 ACKS)--------------------------
 
 bool waitForACK(
     int sockfd,
@@ -161,7 +169,7 @@ bool waitForACK(
 
     if(received <= 0)
     {
-        cout << "TIMEOUT\n";
+        cout << "\nTIMEOUT\n";
         return false;
     }
 
@@ -170,6 +178,7 @@ bool waitForACK(
         return false;
     }
 
+    //secuencia de ack
     uint32_t seq;
 
     memcpy(
@@ -178,6 +187,7 @@ bool waitForACK(
         sizeof(seq)
     );
 
+    //fragment de ack
     uint16_t fragment;
 
     memcpy(
@@ -185,6 +195,31 @@ bool waitForACK(
         buffer + ACK_FRAG_OFFSET,
         sizeof(fragment)
     );
+
+    //state de ack para el nack
+    uint8_t status;
+
+    memcpy(
+        &status,
+        buffer + ACK_STATUS_OFFSET,
+        sizeof(status)
+    );
+
+    cout
+        << "STATUS="
+        << (int)status
+        << endl;
+    if(status == 0)
+    {
+        cout
+            << "NEGATIVE ACK RECEIVED"
+            << endl;
+
+        return false;
+    }
+
+
+
     //CRC DE ACK
     memcpy(
         &receivedCRC,
@@ -192,15 +227,16 @@ bool waitForACK(
         sizeof(receivedCRC)
     );
 
+
+
+
     uint32_t calculatedCRC =
         calculateAckCRC(
             seq,
             fragment
         );
 
-
-
-    //VALIDAR CRC DE ACK
+    //VALIDAR CRC DE ACK 
     if(receivedCRC != calculatedCRC)
     {
         cout
@@ -213,6 +249,17 @@ bool waitForACK(
 
 
 
+    //VALIDAR ACK NEGATIVO
+    if(status == 0)
+    {
+        cout
+            << "NEGATIVE ACK RECEIVED"
+            << endl;
+
+        return false;
+    }
+
+    //DEBUG ----------------------------
     cout
         << "ACK received"
         << " | SEQ=" << seq
@@ -220,6 +267,7 @@ bool waitForACK(
         << " | CRC=" << receivedCRC
         << endl;
 
+    //-----------------------------------
 return
     seq == expectedSequence
     &&
@@ -262,6 +310,11 @@ vector<string> fragmentMessage(
 
 
 
+
+
+
+
+
 void sendMessage(
     int sockfd,
     sockaddr_in serverAddr,
@@ -279,7 +332,7 @@ void sendMessage(
         << total
         << endl;
 
-    //Seq diferentes--------------------
+    //Seq diferentes por cada nuevo mensaje enviado--------------------
     uint32_t messageSequence =
     nextSequence++; 
 
@@ -287,7 +340,7 @@ void sendMessage(
     for(uint16_t i=0; i<total; i++)
     {
         cout
-            << "Sending fragment "
+            << "\n-------------------------------\nSending fragment "
             << i
             << "/"
             << total-1
@@ -296,7 +349,7 @@ void sendMessage(
             << endl;
 
     bool acknowledged = false;
-
+    //RETRANSMISIONES MAXIMAS ......................
     const int MAX_RETRIES = 5;
 
     int retries = 0;
@@ -365,8 +418,9 @@ void sendMessage(
 
 
 
-
-int createClientSocket() {
+//CREACION DE SOCKETS
+int createClientSocket() 
+{
 
     int sockfd =
         socket(AF_INET, SOCK_DGRAM, 0);
@@ -440,6 +494,7 @@ int main()
     sockaddr_in serverAddr =
         createServerAddress();
 //PRUEBA VARIOS MENSAJES--------------------------
+/*
     sendMessage(
         sockfd,
         serverAddr,
@@ -456,6 +511,20 @@ int main()
         sockfd,
         serverAddr,
         "Mensaje C"
+    );*/
+
+
+
+
+
+
+//PRUEBA FRAGMENTACION DE MENSAJES----------
+    string bigMessage(1500, 'X');
+
+    sendMessage(
+        sockfd,
+        serverAddr,
+        bigMessage
     );
 
     close(sockfd);
