@@ -49,12 +49,6 @@ map<uint32_t, MessageAssembly> pendingMessages;
 
 
 
-
-
-
-
-
-
 string buildClientKey(sockaddr_in addr) {
 
     return string(inet_ntoa(addr.sin_addr))
@@ -65,30 +59,56 @@ string buildClientKey(sockaddr_in addr) {
 
 
 
+
+
+
+
+
+
+
+//ENVIO DE ACK-------------------
 void sendACK(
     int sockfd,
     sockaddr_in addr,
     uint32_t sequence,
-    uint16_t fragment
+    uint16_t fragment,
+    bool success
 )
 {
     char datagram[ACK_SIZE];
 
     memset(datagram,0,ACK_SIZE);
 
+
+    //tipo
     datagram[ACK_TYPE_OFFSET] = 'A';
 
+
+    //secuencia(se mantiene en todos los fragmentos solo para un mensaje)
     memcpy(
         datagram + ACK_SEQ_OFFSET,
         &sequence,
         sizeof(sequence)
     );
+
+    //fragmento(1/5 ....)
     memcpy(
         datagram + ACK_FRAG_OFFSET,
         &fragment,
         sizeof(fragment)
     );
 
+    //estado para hacer el doble ack = nack
+    uint8_t status =
+    success ? 1 : 0;
+
+    memcpy(
+    datagram + ACK_STATUS_OFFSET,
+    &status,
+    sizeof(status)
+    );
+
+    //calculamos el crc para el ack
     uint32_t crc =
         calculateAckCRC(
             sequence,
@@ -110,24 +130,6 @@ void sendACK(
         sizeof(addr)
     );
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
@@ -217,6 +219,8 @@ void removeMessage(
     );
 }
 
+
+
 bool receiveDatagram(
     int sockfd,
     char buffer[],
@@ -294,7 +298,78 @@ DatagramInfo extractDatagramInfo(
 }
 
 
+
+//
+bool isDuplicateFragment(
+    const DatagramInfo& packet
+)
+{
+    auto it =
+        pendingMessages.find(
+            packet.sequence
+        );
+
+    if(it == pendingMessages.end())
+    {
+        return false;
+    }
+
+    auto& msg = it->second;
+
+    if(
+        packet.fragment >=
+        msg.fragments.size()
+    )
+    {
+        return false;
+    }
+
+    return
+        !msg.fragments[
+            packet.fragment
+        ].empty();
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 //-----------wa-------------------------
+
+
+
+
+
+
+
+
 
 
 
@@ -336,6 +411,10 @@ int main()
     cout
         << "UDP CHAT SERVER RUNNING\n";
 
+
+
+
+
     while(true)
     {
         char buffer[DATAGRAM_SIZE];
@@ -372,17 +451,22 @@ int main()
 
 
 
-
         if(calculatedCRC != packet.crc)
         {
-            cout
-                << "CRC ERROR"
-                << endl;
+            cout << "CRC ERROR" << endl;
+
+            sendACK(
+                sockfd,
+                clientAddr,
+                packet.sequence,
+                packet.fragment,
+                false
+            );
 
             continue;
         }
         else{
-            cout << "todo ok con el crc";
+            cout << "\n\n\n>>CRC OK\n\n";
 
         }
 
@@ -410,6 +494,28 @@ int main()
         cout << "SIZE: "
              << packet.dataSize
              << endl;
+        //VERIFICACION MENSAJES DUPLICADOSSSSSSSS
+        if(
+            isDuplicateFragment(
+                packet
+            )
+        )
+        {
+            cout
+                << "DUPLICATE FRAGMENT "
+                << packet.fragment
+                << endl;
+
+            sendACK(
+                sockfd,
+                clientAddr,
+                packet.sequence,
+                packet.fragment,
+                true
+            );
+
+            continue;
+        }
 
         storeFragment(packet);
 
@@ -417,6 +523,8 @@ int main()
             pendingMessages[
                 packet.sequence
             ];
+        //-..............................................
+
 
         int count = 0;
 
@@ -435,8 +543,17 @@ int main()
             << msg.totalFragments
             << endl;           
 
-//PRUEBA--------------------------------------------------- BORRARRRRRRRRRR
-        if(packet.fragment == 2 && !ackDropped)
+
+
+
+        //PRUEBA-------------------------------
+        static bool ackDropped = false;
+
+        if(
+            packet.fragment == 1
+            &&
+            !ackDropped
+        )
         {
             cout
                 << "ACK intentionally dropped"
@@ -450,12 +567,13 @@ int main()
                 sockfd,
                 clientAddr,
                 packet.sequence,
-                packet.fragment
+                packet.fragment,
+                true
             );
         }
+        //----------------------------------
 
 
-//----------------------------------------------------------------
 
         if(
             isComplete(packet)
@@ -479,7 +597,7 @@ int main()
                 << endl;
 
             cout
-                << "============================\n";
+                << "============================\n\n\n";
 
             removeMessage(
                 packet.sequence
