@@ -9,24 +9,42 @@ The present project aims to use a neural network to process data and send this d
 - Valenzuela, Luigi
 
 ## Protocols
-For now, the following optimized protocol structures are proposed for sending all the corresponding data. Fields have been rearranged to establish a fixed-size header at the beginning of each frame, avoiding dynamic offset calculations in C++ and maximizing transmission efficiency:
 
-### Normal Data
-| 1 B | 4 B | 2 B | 2 B | 4 B | Variable | 4 B |
+For now, the following optimized protocol structures are proposed for sending all the corresponding data. Fields have been rearranged to establish a fixed-size header at the beginning of each frame, avoiding dynamic offset calculations in C++ and maximizing transmission efficiency.
+
+### Data Packet
+
+| 1 B | 4 B | 2 B | 2 B | 4 B | 483 B | 4 B |
 |---|---|---|---|---|---|---|
-| D (Type) | Sequence number | Fragment Number | Total Fragments |  Size of data | Data | Hash(CRC32) |
+| D (Type) | Sequence Number | Fragment Number | Total Fragments | Data Size | Data / Padding | CRC32 |
 
-### ACK
-| 1 B | 4 B | 4 B |
-|---|---|---|
-| A (Type) | Sequence number | Hash(CRC32) |
 
-### NACK
-| 1 B | 4 B | 4 B |
-|---|---|---|
-| N (Type) | Sequence number | Hash(CRC32) |
+### ACK / NACK Packet
 
-> Note: In all cases, when using fixed-size datagrams of 500 bytes, the missing byte field will have to be filled with padding.
+| 1 B | 4 B | 2 B | 1 B | 4 B |
+|---|---|---|---|---|
+| A (Type) | Sequence Number | Fragment Number | Status | CRC32 |
+
+Where:
+
+- **Status = 1** → ACK (fragment accepted successfully).
+- **Status = 0** → NACK (fragment rejected, retransmission requested).
+
+This implementation uses a **double-ACK mechanism**, where ACK and NACK share the same packet structure and are differentiated through the Status field instead of using a separate NACK packet type.
+
+### Reliability Features
+
+The protocol currently implements:
+
+- CRC32 error detection for Data Packets.
+- CRC32 error detection for ACK/NACK Packets.
+- Message fragmentation and reassembly.
+- Stop-and-Wait retransmission.
+- ACK/NACK-based reliability.
+- Duplicate fragment detection.
+- Fixed timeout retransmission mechanism.
+
+> Note: All transmitted datagrams have a fixed size of **500 bytes**. When the payload does not completely fill the available space, the remaining bytes are padded using the `#` character. The receiver reconstructs the original payload using the **Data Size** field, ignoring padding bytes.
 
 ---
 
