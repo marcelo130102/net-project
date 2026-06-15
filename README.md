@@ -12,19 +12,19 @@ The present project aims to use a neural network to process data and send this d
 For now, the following optimized protocol structures are proposed for sending all the corresponding data. Fields have been rearranged to establish a fixed-size header at the beginning of each frame, avoiding dynamic offset calculations in C++ and maximizing transmission efficiency:
 
 ### Normal Data
-| 1 B | 4 B | 4 B | Variable | 4 B |
-|---|---|---|---|---|
-| D (Type) | Sequence number | Size of data | Data | Hash |
+| 1 B | 4 B | 2 B | 2 B | 4 B | Variable | 4 B |
+|---|---|---|---|---|---|---|
+| D (Type) | Sequence number | Fragment Number | Total Fragments |  Size of data | Data | Hash(CRC32) |
 
 ### ACK
 | 1 B | 4 B | 4 B |
 |---|---|---|
-| A (Type) | Sequence number | Hash |
+| A (Type) | Sequence number | Hash(CRC32) |
 
 ### NACK
 | 1 B | 4 B | 4 B |
 |---|---|---|
-| N (Type) | Sequence number | Hash |
+| N (Type) | Sequence number | Hash(CRC32) |
 
 > Note: In all cases, when using fixed-size datagrams of 500 bytes, the missing byte field will have to be filled with padding.
 
