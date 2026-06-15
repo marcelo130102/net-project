@@ -100,19 +100,21 @@ void sendACK(
 
     //estado para hacer el doble ack = nack
     uint8_t status =
-    success ? 1 : 0;
+        success ? ACK_STATUS_OK : ACK_STATUS_NACK;
 
     memcpy(
-    datagram + ACK_STATUS_OFFSET,
-    &status,
-    sizeof(status)
+        datagram + ACK_STATUS_OFFSET,
+        &status,
+        sizeof(status)
     );
 
     //calculamos el crc para el ack
     uint32_t crc =
         calculateAckCRC(
+            'A',
             sequence,
-            fragment
+            fragment,
+            status
         );
 
     memcpy(
@@ -283,8 +285,8 @@ DatagramInfo extractDatagramInfo(
         4
     );
 
-    info.payload.assign(
-        buffer + PAYLOAD_OFFSET,
+    info.payload = extractPayload(
+        buffer,
         info.dataSize
     );
 
@@ -385,7 +387,7 @@ int createServerSocket() {
     serverAddr.sin_port = htons(PORT);
     serverAddr.sin_addr.s_addr = INADDR_ANY;
 
-    bind(
+    ::bind(
         sockfd,
         (sockaddr*)&serverAddr,
         sizeof(serverAddr)

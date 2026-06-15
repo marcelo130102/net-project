@@ -84,9 +84,6 @@ void sendDataPacket(
         sizeof(fragment)
     );
 
-
-
-
     memcpy(
         datagram + TOTAL_FRAGS_OFFSET,
         &totalFragments,
@@ -99,10 +96,12 @@ void sendDataPacket(
         sizeof(size)
     );
 
+    const string paddedPayload = buildPaddedPayload(data);
+
     memcpy(
         datagram + PAYLOAD_OFFSET,
-        data.data(),
-        size
+        paddedPayload.data(),
+        PAYLOAD_SIZE
     );
 
 
@@ -232,8 +231,10 @@ bool waitForACK(
 
     uint32_t calculatedCRC =
         calculateAckCRC(
+            'A',
             seq,
-            fragment
+            fragment,
+            status
         );
 
     //VALIDAR CRC DE ACK 
@@ -437,7 +438,7 @@ int createClientSocket()
     clientAddr.sin_addr.s_addr = INADDR_ANY;
     clientAddr.sin_port = htons(0);
 
-    if (bind(
+    if (::bind(
             sockfd,
             (sockaddr *)&clientAddr,
             sizeof(clientAddr)
