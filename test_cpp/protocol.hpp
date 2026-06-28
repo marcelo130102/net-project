@@ -3,77 +3,89 @@
 #include <string>
 #include <vector>
 #include <map>
+#include <chrono>
 
 using namespace std;
 
-// general config
+// Configuración general
 const int UDP_PACKET_SIZE = 500;
-const int ACK_PACKET_SIZE = 14;
+const int ACK_PACKET_SIZE = 500;
 const int TIMEOUT_SECONDS = 1;
 
-// packets type
+// Tipos de paquetes
 const char TYPE_MESSAGE  = 'M';
 const char TYPE_DATAGRAM = 'D';
 const char TYPE_ACK      = 'A';
 
-// ACK states
+// Estados de ACK
 const char ACK_ERROR     = 0; // NACK
 const char ACK_OK        = 1;
-const char ACK_COMPLETE  = 2; // full msg
+const char ACK_COMPLETE  = 2; // Mensaje completo
 
-// offsets msg - any size
-// format: [TIPO(1)] [SEQ(4)] [TAMAÑO_DATA(4)] [DATA(Var)] [CRC(4)]
+// Offsets del mensaje (Capa superior)
 const int MSG_TYPE_OFF    = 0;
 const int MSG_SEQ_OFF     = 1;
 const int MSG_SIZE_OFF    = 5;
 const int MSG_HEADER_SIZE = 9;
 const int CRC_SIZE        = 4;
 
-// offsets datagram - 500
-// format: [TIPO(1)] [SEQ(4)] [FRAG(4)] [TOTAL_FRAGS(4)] [PAYLOAD(483)] [CRC(4)]
+// Offsets del datagrama (500 Bytes)
 const int DG_TYPE_OFF    = 0;
 const int DG_SEQ_OFF     = 1;
 const int DG_FRAG_OFF    = 5;
 const int DG_TOT_OFF     = 9;
 const int DG_DATA_OFF    = 13;
 const int DG_HEADER_SIZE = 13;
-const int DG_MAX_PAYLOAD = UDP_PACKET_SIZE - DG_HEADER_SIZE - CRC_SIZE; // 483
+const int DG_MAX_PAYLOAD = UDP_PACKET_SIZE - DG_HEADER_SIZE - CRC_SIZE; // 483 B
 
-// offsets ACK - 14
-// format: [TIPO(1)] [SEQ(4)] [FRAG(4)] [STATUS(1)] [CRC(4)]
+// Offsets de ACK (500 Bytes con Padding)
 const int ACK_TYPE_OFF   = 0;
 const int ACK_SEQ_OFF    = 1;
 const int ACK_FRAG_OFF   = 5;
 const int ACK_STATUS_OFF = 9;
-const int ACK_CRC_OFF    = 10;
+const int ACK_CRC_OFF    = UDP_PACKET_SIZE - CRC_SIZE;
 
-// for reconstruction
+// Estructura de reconstrucción con protección contra zombis
 struct PendingMessage {
-	int totalFragments = 0;
-	int fragmentsReceived = 0;
-	vector<string> fragments;
+    int totalFragments = 0;
+    int fragmentsReceived = 0;
+    vector<string> fragments;
+    chrono::steady_clock::time_point lastActivity; 
 };
 
-// hash
+struct RTTMetrics {
+    double estimatedRTT = 0.5; 
+    double devRTT = 0.25;      
+    double timeout = 1.0;      
+    int backoffCount = 0;
+};
+
+// Cálculo de CRC32 Real
 int calculateCRC(const char *buffer, int size);
 
-// full msg
+// Gestión de Mensajes Completos
 string buildMessage(int sequence, const string &data);
 bool extractMessage(const string &msgStr, int &sequence, string &data);
 
-// split & join msg
+// Fragmentación y Reconstrucción Multi-Cliente
 vector<string> fragmentMessage(const string &message);
-string rebuildMessage(int sequence);
+string rebuildMessage(const string &msgKey);
 
-// for datagram
+// Gestión de Datagramas
 string buildDatagram(int sequence, int fragment, int totalFragments, const string &payload);
 bool extractDatagram(const string &datagram, int &sequence, int &fragment, int &totalFragments, string &payload);
 
-// for ACK
+// Gestión de ACKs/NACKs
 string buildACK(int sequence, int fragment, char status);
 bool extractACK(const string &ackStr, int &sequence, int &fragment, char &status);
 
-// for reception
-bool isDuplicate(int sequence, int fragment);
-void storeFragment(int sequence, int fragment, int totalFragments, const string &payload);
-bool messageComplete(int sequence);
+// Recepción e Integridad Binaria
+bool isDuplicate(const string &msgKey, int fragment);
+void storeFragment(const string &msgKey, int fragment, int totalFragments, const string &payload);
+bool messageComplete(const string &msgKey);
+void cleanupZombieMessages(); 
+
+// Métricas Jacobson-Karels & Backoff
+void updateRTT(RTTMetrics &metrics, double measuredRTT);
+void applyBackoff(RTTMetrics &metrics);
+void resetBackoff(RTTMetrics &metrics);
