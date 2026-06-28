@@ -1,3 +1,6 @@
+import sys
+sys.path.append('cpp_python_example')
+
 import calculator
 
 def test_calculator():
@@ -24,4 +27,4 @@ def test_calculator():
         print("Successfully caught division by zero error")
 
 if __name__ == "__main__":
-    test_calculator() 
+    test_calculator()

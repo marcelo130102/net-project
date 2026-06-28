@@ -1,0 +1,10 @@
+# compiled of C/C++
+*.o
+*.so
+
+# CSV
+*.csv
+
+# Builds
+./client
+./server
