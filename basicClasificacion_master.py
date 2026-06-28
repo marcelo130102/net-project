@@ -2,7 +2,7 @@
 import os
 import sys
 
-# tmp to test send functions
+# dir config
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CPP_DIR = os.path.join(BASE_DIR, "cpp_python_example")
 
@@ -10,10 +10,7 @@ sys.path.insert(0, CPP_DIR)
 
 import modulo
 
-print(modulo.__file__)
-
-print("starting master...")
-net = modulo.NetMaster(8888, 2)
+# print(modulo.__file__)
 
 import torch
 import torch.nn as nn
@@ -33,6 +30,20 @@ import math
 import torch.distributions as dist
 
 import copy
+
+
+# args
+if len(sys.argv) != 3:
+	print("use: python basicClasificacion_master.py <num_slaves> <file_master.csv>")
+	sys.exit(1)
+
+num_slaves = int(sys.argv[1])
+csv_path_arg = sys.argv[2]
+
+# init master
+print("master started...")
+net = modulo.NetMaster(45000, num_slaves)
+
 
 # conversion functions
 def model_to_vector(model):
@@ -68,8 +79,7 @@ class MulticlassClassifier(nn.Module):
 		logits = self.class_logits(x)
 		log_vars = self.class_log_vars(x)
 		return logits, log_vars
-		#return logits, logits
-
+		# return logits, logits
 
 
 # Generate synthetic heteroscedastic multiclass data
@@ -77,35 +87,35 @@ torch.manual_seed(42)
 num_samples = 1000
 input_dim = 14
 num_classes = 3
-batch_size = 100
+batch_size = 1
 
 X = torch.randn(num_samples, input_dim)  # 1000 samples, 100 inputs
 
 active_indices = torch.randint(0, num_classes, (num_samples,))
 y = torch.nn.functional.one_hot(active_indices, num_classes=num_classes).float()
 
-#y = torch.randint(0, num_classes, (num_samples * num_classes,)).view(num_samples, num_classes)
+# y = torch.randint(0, num_classes, (num_samples * num_classes,)).view(num_samples, num_classes)
 
 # Load dataset from CSV
 # csv_path = "Dataset of Diabetes.csv"  # replace with your actual CSV file path   1000,13,3,50
-csv_path = "diabetes_master.csv"
+csv_path = csv_path_arg
 
 df = pd.read_csv(csv_path, header=None, skiprows=1)
 
 
 # Assume first 4 columns are input features, last 3 are one-hot class labels
 X_np = df.iloc[:, :input_dim].values.astype(np.float32)
-#y_onehot_np = df.iloc[:, input_dim:].values.astype(np.float32)
+# y_onehot_np = df.iloc[:, input_dim:].values.astype(np.float32)
 y_onehot_np = df.iloc[:, -num_classes:].values.astype(np.float32)
 
 y_np = np.argmax(y_onehot_np, axis=1).astype(np.int64)
 y = torch.tensor(y_np)
 
 X = torch.tensor(X_np)
-#y = torch.tensor(y_onehot_np)
-print("y ",y)
-print("y ",y.size())
-print("X ",X.size())
+# y = torch.tensor(y_onehot_np)
+print("y ", y)
+print("y ", y.size())
+print("X ", X.size())
 # Create dataset and split into training/testing
 dataset = TensorDataset(X, y)
 
@@ -144,11 +154,15 @@ for epoch in range(num_epochs):
 		else:
 			# receive weights
 			print("\nmaster waiting weights...")
-			w_slave1 = net.receive_matrix(0)
-			w_slave2 = net.receive_matrix(1)
-
-			# temporal slave number
-			w_avg = (w_slave1 + w_slave2) / 2.0
+			w_sum = None
+			for i in range(num_slaves):
+				w_slave = net.receive_matrix(i)
+				if w_sum is None:
+					w_sum = w_slave
+				else:
+					w_sum += w_slave
+			# get avg
+			w_avg = w_sum / num_slaves
 			vector_to_model(w_avg, model)
 			print(f"loaded weights-sample:\n{w_avg[0][:4]}")
 
@@ -161,14 +175,13 @@ for epoch in range(num_epochs):
 
 		# send weights
 		w_master = model_to_vector(model)
-		# test with 2 slaves
-		net.send_matrix(0, w_master)
-		net.send_matrix(1, w_master)
+		# send weight
+		for i in range(num_slaves):
+			net.send_matrix(i, w_master)
 		print(f"\nweights sended-sample:\n{w_master[0][:4]}")
 
 	train_tracker.append(epoch_loss / len(train_loader))
 	print(f"Epoch {epoch+1}/{num_epochs}, Loss: {train_tracker[-1]:.4f} | ",end="")
-
 
 
 # with torch.no_grad():
@@ -195,9 +208,6 @@ for epoch in range(num_epochs):
 	print(f"Test loss: {test_loss/len(test_loader)} | ", end='')
 	accuracy_tracker.append(num_correct/total)
 	print(f'Accuracy : {num_correct/total}')
-
-
-
 
 
 ## Plot training loss over epochs

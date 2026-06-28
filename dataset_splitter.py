@@ -1,32 +1,49 @@
+"""
+csv data splitter
+"""
+import sys
 import pandas as pd
 
 
-# test with 3
-def split_dataset(csv_path, parts=3):
-	"""to split dataset into parts"""
+def split_dataset(csv_path, parts):
+	"""
+	divide dataset
+	"""
 
 	df = pd.read_csv(csv_path)
-	df_shuffled = df.sample(frac=1, random_state=42).reset_index(drop=True)
-
-	split_size = len(df_shuffled) // parts
-
+	split_size = len(df) // parts
 	splits = []
 
+	# to divide
 	for i in range(parts):
 		start = i * split_size
 
+		# add all at end
 		if i == parts - 1:
-			end = len(df_shuffled)
+			end = len(df)
 		else:
 			end = (i + 1) * split_size
 
-		splits.append(df_shuffled.iloc[start:end])
+		splits.append(df.iloc[start:end])
 
-	# TODO: change the logic
-	splits[0].to_csv("diabetes_master.csv", index=False)
-	splits[1].to_csv("diabetes_slave1.csv", index=False)
-	splits[2].to_csv("diabetes_slave2.csv", index=False)
+	# to create
+	for i in range(parts):
+		if i == 0:
+			filename = "diabetes_master.csv"
+		else:
+			filename = f"diabetes_slave_{i}.csv"
+
+		splits[i].to_csv(filename, index=False)
+		print(f"Saved - {filename} - {len(splits[i])} rows")
 
 
 if __name__ == "__main__":
-	split_dataset("Dataset of Diabetes.csv", parts=3)
+	# args check
+	if len(sys.argv) != 3:
+		print("use: python dataset_splitter.py <file.csv> <number of parts>")
+		sys.exit(1)
+
+	file_csv = sys.argv[1]
+	num_parts = int(sys.argv[2])
+
+	split_dataset(file_csv, parts=num_parts)

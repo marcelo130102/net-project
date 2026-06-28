@@ -10,7 +10,7 @@ sys.path.insert(0, CPP_DIR)
 
 import modulo
 
-print(modulo.__file__)
+# print(modulo.__file__)
 
 import torch
 import torch.nn as nn
@@ -28,6 +28,15 @@ import pandas as pd
 import math
 
 import torch.distributions as dist
+
+
+# args
+if len(sys.argv) != 3:
+	print("use: python basicClasificacion_slave.py <slave_id> <file_slave.csv>")
+	sys.exit(1)
+
+slave_id = int(sys.argv[1])
+csv_path_arg = sys.argv[2]
 
 
 # conversion functions
@@ -64,53 +73,46 @@ class MulticlassClassifier(nn.Module):
 		logits = self.class_logits(x)
 		log_vars = self.class_log_vars(x)
 		return logits, log_vars
-		#return logits, logits
+		# return logits, logits
 
-
-# slaves arguments
-if len(sys.argv) < 2:
-	print("no id slave argument")
-	sys.exit(1)
-
-slave_id = int(sys.argv[1])
 
 # Generate synthetic heteroscedastic multiclass data
 torch.manual_seed(42)
 num_samples = 1000
 input_dim = 14
 num_classes = 3
-batch_size = 100
+batch_size = 1
 
 X = torch.randn(num_samples, input_dim)  # 1000 samples, 100 inputs
 
 active_indices = torch.randint(0, num_classes, (num_samples,))
 y = torch.nn.functional.one_hot(active_indices, num_classes=num_classes).float()
 
-#y = torch.randint(0, num_classes, (num_samples * num_classes,)).view(num_samples, num_classes)
+# y = torch.randint(0, num_classes, (num_samples * num_classes,)).view(num_samples, num_classes)
 
 # Load dataset from CSV
-csv_path = f"diabetes_slave{slave_id}.csv"
-print(f"starting slave {slave_id}...")
+csv_path = csv_path_arg
+print(f"slave {slave_id} started...")
 
 df = pd.read_csv(csv_path, header=None, skiprows=1)
 
 # init slave conn
 print("connecting to master...")
-net = modulo.NetSlave("127.0.0.1", 8888)
+net = modulo.NetSlave("127.0.0.1", 45000)
 
 # Assume first 4 columns are input features, last 3 are one-hot class labels
 X_np =		df.iloc[:, :input_dim].values.astype(np.float32)
-#y_onehot_np = df.iloc[:, input_dim:].values.astype(np.float32)
+# y_onehot_np = df.iloc[:, input_dim:].values.astype(np.float32)
 y_onehot_np = df.iloc[:, -num_classes:].values.astype(np.float32)
 
 y_np = np.argmax(y_onehot_np, axis=1).astype(np.int64)
 y = torch.tensor(y_np)
 
 X = torch.tensor(X_np)
-#y = torch.tensor(y_onehot_np)
-print("y ",y)
-print("y ",y.size())
-print("X ",X.size())
+# y = torch.tensor(y_onehot_np)
+print("y ", y)
+print("y ", y.size())
+print("X ", X.size())
 # Create dataset and split into training/testing
 dataset = TensorDataset(X, y)
 
@@ -163,7 +165,6 @@ for epoch in range(num_epochs):
 	print(f"Epoch {epoch+1}/{num_epochs}, Loss: {train_tracker[-1]:.4f} | ",end="")
 
 
-
 #with torch.no_grad():
 	test_loss = 0
 	total = 0
@@ -188,9 +189,6 @@ for epoch in range(num_epochs):
 	print(f"Test loss: {test_loss/len(test_loader)} | ", end='')
 	accuracy_tracker.append(num_correct/total)
 	print(f'Accuracy : {num_correct/total}')
-
-
-
 
 
 ## Plot training loss over epochs

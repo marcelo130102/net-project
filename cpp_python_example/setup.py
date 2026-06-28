@@ -6,7 +6,9 @@ ext_modules = [
 		"modulo",
 		[
 			"calculator.cpp",
-			"test_net.cpp",
+			"protocol.cpp",
+			"net_master.cpp",
+			"net_slave.cpp",
 			"bindings.cpp"
 		],
 		include_dirs=[pybind11.get_include()],

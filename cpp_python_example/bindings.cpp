@@ -2,12 +2,14 @@
 #include <pybind11/numpy.h>
 
 #include "calculator.hpp"
-#include "test_net.hpp"
+#include "net_master.hpp"
+#include "net_slave.hpp"
+// #include "test_net.hpp"
 
 namespace py = pybind11;
 
 PYBIND11_MODULE(modulo, m) {
-	m.doc() = "C++ modulo - include calculator and network test";
+	m.doc() = "C++ modulo - include calculator and robust UDP network";
 
 	py::module_ m_calc = m.def_submodule("calculator", "calculator functions");
 	m_calc.def("add", &calculator::add, "Add two numbers");
