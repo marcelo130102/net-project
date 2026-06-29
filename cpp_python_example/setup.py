@@ -1,15 +1,27 @@
 from setuptools import setup, Extension
 import pybind11
 
+common_sources = [
+	"calculator.cpp",
+	"matrix_calculator.cpp",
+]
+
 ext_modules = [
 	Extension(
 		"modulo",
-		[
-			"calculator.cpp",
+		common_sources + [
 			"protocol.cpp",
 			"net_master.cpp",
 			"net_slave.cpp",
-			"bindings.cpp"
+			"bindings.cpp",
+		],
+		include_dirs=[pybind11.get_include()],
+		language='c++'
+	),
+	Extension(
+		"calculator",
+		common_sources + [
+			"calculator_bindings.cpp",
 		],
 		include_dirs=[pybind11.get_include()],
 		language='c++'

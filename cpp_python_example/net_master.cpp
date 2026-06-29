@@ -17,7 +17,7 @@ NetMaster::NetMaster(int port, int num_slaves) : num_slaves(num_slaves), tx_sequ
 	address.sin_addr.s_addr = INADDR_ANY;
 	address.sin_port = htons(port);
 
-	if (bind(sockfd, (struct sockaddr*)&address, sizeof(address)) < 0)
+	if (::bind(sockfd, (struct sockaddr*)&address, sizeof(address)) < 0)
 		throw std::runtime_error("Fail to bind master port UDP");
 
 	// timeout config

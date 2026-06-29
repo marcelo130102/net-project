@@ -1,3 +1,10 @@
+import os
+import sys
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+CPP_DIR = os.path.join(BASE_DIR, "cpp_python_example")
+sys.path.insert(0, CPP_DIR)
+
 import numpy as np
 import calculator
 
