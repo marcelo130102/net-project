@@ -130,66 +130,70 @@ criterion = nn.CrossEntropyLoss()
 optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 
 # Training loop
-num_epochs = 10
+num_epochs = 2
 train_tracker, test_tracker, accuracy_tracker = [], [], []
-
 # Evaluation on test set
 model.eval()
 y_true = []
 y_pred = []
 log_vars_all = []
 
-for epoch in range(num_epochs):
-	model.train()
-	epoch_loss = 0
-	for batch_x, batch_y in train_loader:
-		# receive weights
-		print(f"\nslave {slave_id} waiting...")
-		w_master = net.receive_matrix()
-		vector_to_model(w_master, model)
-		print(f"slave {slave_id} loaded weights-sample:\n{w_master[0][:4]}")
 
-		optimizer.zero_grad()
-		logits, log_vars = model(batch_x)
-		loss = criterion(logits, batch_y)
-		loss.backward()
-		optimizer.step()
-		epoch_loss += loss.item()
+try:
+    for epoch in range(num_epochs):
+        model.train()
+        epoch_loss = 0
+        for batch_x, batch_y in train_loader:
+            # receive weights
+            print(f"\nslave {slave_id} waiting...")
+            w_master = net.receive_matrix()
+            vector_to_model(w_master, model)
+            #print(f"slave {slave_id} loaded weights-sample:\n{w_master[0][:4]}")
 
-		# sending weights
-		w_slave = model_to_vector(model)
-		net.send_matrix(w_slave)
-		print(f"\nslave {slave_id} send weights-sample:\n{w_slave[0][:4]}")
+            optimizer.zero_grad()
+            logits, log_vars = model(batch_x)
+            loss = criterion(logits, batch_y)
+            loss.backward()
+            optimizer.step()
+            epoch_loss += loss.item()
 
-	train_tracker.append(epoch_loss / len(train_loader))
-	print(f"Epoch {epoch+1}/{num_epochs}, Loss: {train_tracker[-1]:.4f} | ",end="")
+            # sending weights
+            w_slave = model_to_vector(model)
+            net.send_matrix(w_slave)
+            #print(f"\nslave {slave_id} send weights-sample:\n{w_slave[0][:4]}")
+
+        train_tracker.append(epoch_loss / len(train_loader))
+        print(f"Epoch {epoch+1}/{num_epochs}, Loss: {train_tracker[-1]:.4f} | ",end="")
+
+    # --- Test loop ---
+    #with torch.no_grad():
+        test_loss = 0
+        total = 0
+        num_correct = 0
+        for batch_x, batch_y in test_loader:
+            logits, log_vars = model(batch_x)
+            loss = criterion(logits, batch_y)
+            test_loss += loss.item()
+
+            predictions = torch.argmax(logits, dim=1)
+            total += batch_x.size(0)
+            num_correct += (predictions == batch_y).sum().item()
+
+            predictions = torch.argmax(logits, dim=1)
+            y_true.extend(batch_y.tolist())
+            y_pred.extend(predictions.tolist())
+            log_vars_all.append(log_vars)
+
+        test_tracker.append(test_loss/len(test_loader))
+        print(f"Test loss: {test_loss/len(test_loader)} | ", end='')
+        accuracy_tracker.append(num_correct/total)
+        print(f'Accuracy : {num_correct/total}')
 
 
-#with torch.no_grad():
-	test_loss = 0
-	total = 0
-	num_correct = 0
-	for batch_x, batch_y in test_loader:
-		logits, log_vars = model(batch_x)
-		loss = criterion(logits, batch_y)
-		test_loss += loss.item()
-
-		predictions = torch.argmax(logits, dim=1)
-		total += batch_x.size(0)
-		# num_correct += (predictions == torch.argmax(batch_y, dim=1)).sum().item()
-		num_correct += (predictions == batch_y).sum().item()
-
-		predictions = torch.argmax(logits, dim=1)
-		# y_true.extend(torch.argmax(batch_y, dim=1))
-		y_true.extend(batch_y.tolist())
-		y_pred.extend(predictions.tolist())
-		log_vars_all.append(log_vars)
-
-	test_tracker.append(test_loss/len(test_loader))
-	print(f"Test loss: {test_loss/len(test_loader)} | ", end='')
-	accuracy_tracker.append(num_correct/total)
-	print(f'Accuracy : {num_correct/total}')
-
+except RuntimeError as e:
+    print(f"\n[ERROR DE RED] {e}")
+    print(f"Abortando ejecucion del Esclavo {slave_id} de forma segura.")
+    sys.exit(1)
 
 ## Plot training loss over epochs
 #plt.figure(figsize=(8, 4))

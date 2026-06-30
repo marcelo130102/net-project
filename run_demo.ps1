@@ -2,7 +2,7 @@ $ErrorActionPreference = "Stop"
 
 $Distro = "Ubuntu"
 
-# Carpeta donde está este script = raíz del repo
+# Carpeta donde estï¿½ este script = raï¿½z del repo
 $RepoWin = Split-Path -Parent $MyInvocation.MyCommand.Path
 
 function Convert-ToWslPath($winPath) {
@@ -77,7 +77,7 @@ if (!(Test-Path $LauncherDir)) {
 $repoQ = BashQuote $RepoWsl
 $datasetQ = BashQuote $dataset
 
-# Script de preparación
+# Script de preparaciï¿½n
 $setupScript = @"
 #!/usr/bin/env bash
 set -e
@@ -98,19 +98,16 @@ source .venv/bin/activate
 echo "[SETUP] Instalando/verificando dependencias..."
 python -m pip install -q --upgrade pip setuptools wheel pybind11 numpy pandas matplotlib scikit-learn torch
 
-if ! ls cpp_python_example/modulo*.so >/dev/null 2>&1 || ! ls cpp_python_example/calculator*.so >/dev/null 2>&1; then
-    echo "[SETUP] Compilando bindings C++..."
-    cd cpp_python_example
-    python setup.py build_ext --inplace
-    cd ..
-else
-    echo "[SETUP] Bindings C++ ya compilados."
-fi
+echo "[SETUP] Compilando bindings C++..."
+cd cpp_python_example
+python setup.py build_ext --inplace
+cd ..
+
 
 echo "[SETUP] Dividiendo dataset en $totalParts partes..."
 python dataset_splitter.py $datasetQ $totalParts
 
-echo "[SETUP] Preparación terminada."
+echo "[SETUP] Preparaciï¿½n terminada."
 "@
 
 $setupPath = Join-Path $LauncherDir "setup.sh"

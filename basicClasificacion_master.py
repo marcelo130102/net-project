@@ -133,7 +133,7 @@ criterion = nn.CrossEntropyLoss()
 optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 
 # Training loop
-num_epochs = 10
+num_epochs = 2
 train_tracker, test_tracker, accuracy_tracker = [], [], []
 
 # Evaluation on test set
@@ -164,7 +164,7 @@ for epoch in range(num_epochs):
 			# get avg
 			w_avg = modulo.calculator.matrix_scale(w_sum, 1.0 / num_slaves)
 			vector_to_model(w_avg, model)
-			print(f"loaded weights-sample:\n{w_avg[0][:4]}")
+			#print(f"loaded weights-sample:\n{w_avg[0][:4]}")
 
 		optimizer.zero_grad()
 		logits, log_vars = model(batch_x)
@@ -178,7 +178,7 @@ for epoch in range(num_epochs):
 		# send weight
 		for i in range(num_slaves):
 			net.send_matrix(i, w_master)
-		print(f"\nweights sended-sample:\n{w_master[0][:4]}")
+		#print(f"\nweights sended-sample:\n{w_master[0][:4]}")
 
 	train_tracker.append(epoch_loss / len(train_loader))
 	print(f"Epoch {epoch+1}/{num_epochs}, Loss: {train_tracker[-1]:.4f} | ",end="")
@@ -210,32 +210,35 @@ for epoch in range(num_epochs):
 	print(f'Accuracy : {num_correct/total}')
 
 
-## Plot training loss over epochs
-#plt.figure(figsize=(8, 4))
-#plt.plot(train_tracker, marker='o')
-#plt.title("Training Loss Over Epochs")
-#plt.xlabel("Epoch")
-#plt.ylabel("Loss")
-#plt.grid(True)
-#plt.tight_layout()
-#plt.show()
-#
-#import matplotlib.pyplot as plt
-## %matplotlib inline
-#plt.plot(train_tracker, label='Training loss')
-#plt.plot(test_tracker, label='Test loss')
-#plt.plot(accuracy_tracker, label='Test accuracy')
-#plt.legend()
-#
-#
-## Display confusion matrix
-#cm = confusion_matrix(y_true, y_pred)
-#disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=list(range(num_classes)))
-#disp.plot(cmap=plt.cm.Blues)
-#plt.title("Confusion Matrix")
-#plt.tight_layout()
-#plt.show()
-#
-## Print classification metrics
-#print("\nClassification Report:")
-#print(classification_report(y_true, y_pred, digits=3))
+## --- GRÁFICO
+plt.figure(figsize=(8, 4))
+plt.plot(train_tracker, marker='o')
+plt.title("Training Loss Over Epochs")
+plt.xlabel("Epoch")
+plt.ylabel("Loss")
+plt.grid(True)
+plt.tight_layout()
+
+plt.savefig("loss_over_epochs.png") 
+print("[MASTER] Gráfico de pérdidas guardado como 'loss_over_epochs.png'")
+
+plt.figure()
+plt.plot(train_tracker, label='Training loss')
+plt.plot(test_tracker, label='Test loss')
+plt.plot(accuracy_tracker, label='Test accuracy')
+plt.legend()
+plt.savefig("metrics_summary.png")
+
+
+cm = confusion_matrix(y_true, y_pred)
+disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=list(range(num_classes)))
+disp.plot(cmap=plt.cm.Blues)
+plt.title("Confusion Matrix")
+plt.tight_layout()
+
+plt.savefig("confusion_matrix.png")
+print("[MASTER] Matriz de confusión guardada como 'confusion_matrix.png'")
+
+# Print classification metrics
+print("\nClassification Report:")
+print(classification_report(y_true, y_pred, digits=3))
