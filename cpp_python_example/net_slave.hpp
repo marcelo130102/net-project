@@ -8,6 +8,7 @@
 #include <unistd.h>
 #include <string>
 #include <vector>
+#include "protocol.hpp"
 
 namespace py = pybind11;
 
@@ -16,7 +17,8 @@ class NetSlave {
 	int tx_sequence;
 	int my_slave_idx;
 	sockaddr_in master_addr;
-	std::vector<int> recentlyCompleted;
+	RTTMetrics metrics;
+	std::vector<std::string> recentlyCompleted;
 
 public:
 	NetSlave(const std::string& ip, int port);

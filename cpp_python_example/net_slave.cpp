@@ -7,6 +7,9 @@
 
 NetSlave::NetSlave(const std::string& ip, int port) : tx_sequence(0), my_slave_idx(-1) {
 	sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+	if (sockfd < 0) {
+		throw std::runtime_error("Failed to create UDP socket");
+	}
 
 	std::memset(&master_addr, 0, sizeof(master_addr));
 	master_addr.sin_family = AF_INET;
@@ -20,9 +23,9 @@ NetSlave::NetSlave(const std::string& ip, int port) : tx_sequence(0), my_slave_i
 
 	std::cout << "[C++] slave trying register...\n";
 
-	// handshake
-	// send R until get K + id
+	// Handshake
 	bool registrado = false;
+	int attempts = 0;
 	while (!registrado) {
 		char reg_buf[1] = {'R'};
 		sendto(sockfd, reg_buf, 1, 0, (sockaddr*)&master_addr, sizeof(master_addr));
@@ -36,12 +39,19 @@ NetSlave::NetSlave(const std::string& ip, int port) : tx_sequence(0), my_slave_i
 			std::memcpy(&my_slave_idx, &ack_buf[1], sizeof(int));
 			registrado = true;
 			std::cout << "[C++] slave registered. assigned slave_idx: " << my_slave_idx << "...\n";
+		} else {
+			attempts++;
+			if (attempts % 5 == 0) {
+				std::cout << "[C++] registration attempt " << attempts << " timed out, retrying...\n";
+			}
 		}
 	}
 }
 
 NetSlave::~NetSlave() {
-	close(sockfd);
+	if (sockfd >= 0) {
+		close(sockfd);
+	}
 }
 
 void NetSlave::send_matrix(py::array_t<float> matrix) {
@@ -63,89 +73,158 @@ void NetSlave::send_matrix(py::array_t<float> matrix) {
 	std::vector<std::string> fragments = fragmentMessage(msgStr);
 	socklen_t masterLen = sizeof(master_addr);
 
-	for (int i = 0; i < fragments.size(); i++) {
-		bool ackReceived = false;
-		while (!ackReceived) {
-			std::string datagram = buildDatagram(proto_seq, i, fragments.size(), fragments[i]);
-			sendto(sockfd, datagram.data(), datagram.size(), 0, (sockaddr*)&master_addr, masterLen);
+	// Release GIL for blocking I/O loop
+	{
+		py::gil_scoped_release release;
 
-			char buffer[UDP_PACKET_SIZE];
-			int n = recvfrom(sockfd, buffer, sizeof(buffer), 0, nullptr, nullptr);
+		resetBackoff(metrics);
 
-			if (n > 0 && buffer[0] == TYPE_ACK) {
-				int ackSeq, ackFrag; char ackStatus;
-				if (extractACK(std::string(buffer, n), ackSeq, ackFrag, ackStatus)) {
-					if (ackSeq == proto_seq && ackFrag == i && ackStatus == ACK_OK)
-						ackReceived = true;
+		for (size_t i = 0; i < fragments.size(); i++) {
+			bool ackReceived = false;
+			while (!ackReceived) {
+				applySocketTimeout(sockfd, metrics.timeout);
+
+				std::string datagram = buildDatagram(proto_seq, i, fragments.size(), fragments[i]);
+				auto timeStart = std::chrono::steady_clock::now();
+
+				sendto(sockfd, datagram.data(), datagram.size(), 0, (sockaddr*)&master_addr, masterLen);
+
+				char buffer[UDP_PACKET_SIZE];
+				memset(buffer, 0, UDP_PACKET_SIZE);
+				int n = recvfrom(sockfd, buffer, UDP_PACKET_SIZE, 0, nullptr, nullptr);
+
+				if (n == UDP_PACKET_SIZE && buffer[0] == TYPE_ACK) {
+					int ackSeq, ackFrag; char ackStatus;
+					if (extractACK(std::string(buffer, UDP_PACKET_SIZE), ackSeq, ackFrag, ackStatus)) {
+						if (ackSeq == proto_seq && ackFrag == static_cast<int>(i)) {
+							if (ackStatus == ACK_OK || ackStatus == ACK_COMPLETE) {
+								auto timeEnd = std::chrono::steady_clock::now();
+								double measuredRTT = std::chrono::duration_cast<std::chrono::duration<double>>(timeEnd - timeStart).count();
+								updateRTT(metrics, measuredRTT);
+								resetBackoff(metrics);
+								ackReceived = true;
+							} else if (ackStatus == ACK_ERROR) {
+								// NACK
+								std::cout << "[C++] <<NACK>> received due to master CRC error. Retransmitting fragment " << (i + 1) << "...\n";
+							}
+						}
+					}
+				} else {
+					if (n < 0) {
+						applyBackoff(metrics);
+						if (metrics.timeout > 2.0) {
+							metrics.timeout = 2.0;
+						}
+						std::cout << "[C++] Timeout. Retransmitting fragment " << (i + 1) << " with backoff. Timeout: " << metrics.timeout * 1000.0 << " ms...\n";
+					}
 				}
 			}
 		}
-	}
 
-	bool completeAckReceived = false;
-	while (!completeAckReceived) {
-		char buffer[UDP_PACKET_SIZE];
-		int n = recvfrom(sockfd, buffer, sizeof(buffer), 0, nullptr, nullptr);
-		if (n > 0 && buffer[0] == TYPE_ACK) {
-			int ackSeq, ackFrag; char ackStatus;
-			if (extractACK(std::string(buffer, n), ackSeq, ackFrag, ackStatus)) {
-				if (ackSeq == proto_seq && ackStatus == ACK_COMPLETE)
-					completeAckReceived = true;
+		bool completeAckReceived = false;
+		while (!completeAckReceived) {
+			applySocketTimeout(sockfd, metrics.timeout);
+
+			char buffer[UDP_PACKET_SIZE];
+			memset(buffer, 0, UDP_PACKET_SIZE);
+			int n = recvfrom(sockfd, buffer, UDP_PACKET_SIZE, 0, nullptr, nullptr);
+			if (n == UDP_PACKET_SIZE && buffer[0] == TYPE_ACK) {
+				int ackSeq, ackFrag; char ackStatus;
+				if (extractACK(std::string(buffer, UDP_PACKET_SIZE), ackSeq, ackFrag, ackStatus)) {
+					if (ackSeq == proto_seq && ackStatus == ACK_COMPLETE)
+						completeAckReceived = true;
+				}
+			} else {
+				std::string lastDatagram = buildDatagram(proto_seq, fragments.size() - 1, fragments.size(), fragments.back());
+				sendto(sockfd, lastDatagram.data(), lastDatagram.size(), 0, (sockaddr*)&master_addr, masterLen);
 			}
-		} else {
-			std::string lastDatagram = buildDatagram(proto_seq, fragments.size()-1, fragments.size(), fragments.back());
-			sendto(sockfd, lastDatagram.data(), lastDatagram.size(), 0, (sockaddr*)&master_addr, masterLen);
 		}
 	}
 }
 
 py::array_t<float> NetSlave::receive_matrix() {
 	socklen_t masterLen = sizeof(master_addr);
-	while (true) {
-		char buffer[UDP_PACKET_SIZE];
-		int n = recvfrom(sockfd, buffer, sizeof(buffer), 0, nullptr, nullptr);
+	std::string serialized_data;
+	bool found = false;
 
-		if (n <= 0)
-			continue;
+	// Release GIL for blocking I/O loop
+	{
+		py::gil_scoped_release release;
+		applySocketTimeout(sockfd, 1.0);
 
-		if (buffer[0] == TYPE_DATAGRAM) {
-			int seq, frag, tot;
-			std::string payload;
-			std::string packet(buffer, n);
+		while (!found) {
+			cleanupZombieMessages();
 
-			if (extractDatagram(packet, seq, frag, tot, payload)) {
-				if (std::find(recentlyCompleted.begin(), recentlyCompleted.end(), seq) != recentlyCompleted.end()) {
-					std::string finalAck = buildACK(seq, 0, ACK_COMPLETE);
-					sendto(sockfd, finalAck.data(), finalAck.size(), 0, (sockaddr*)&master_addr, masterLen);
-					continue;
-				}
+			char buffer[UDP_PACKET_SIZE];
+			memset(buffer, 0, UDP_PACKET_SIZE);
+			int n = recvfrom(sockfd, buffer, UDP_PACKET_SIZE, 0, nullptr, nullptr);
 
-				if (!isDuplicate(seq, frag))
-					storeFragment(seq, frag, tot, payload);
+			if (n <= 0) {
+				continue;
+			}
 
-				std::string ack = buildACK(seq, frag, ACK_OK);
-				sendto(sockfd, ack.data(), ack.size(), 0, (sockaddr*)&master_addr, masterLen);
+			if (n == UDP_PACKET_SIZE && buffer[0] == TYPE_DATAGRAM) {
+				int seq, frag, tot;
+				std::string payload;
+				std::string packet(buffer, UDP_PACKET_SIZE);
 
-				if (messageComplete(seq)) {
-					std::string fullMsg = rebuildMessage(seq);
-					recentlyCompleted.push_back(seq);
+				if (extractDatagram(packet, seq, frag, tot, payload)) {
+					std::string msgKey = std::to_string(master_addr.sin_addr.s_addr) + ":" + 
+					                     std::to_string(master_addr.sin_port) + ":" + std::to_string(seq);
 
-					int msgSeq; std::string data;
-					if (extractMessage(fullMsg, msgSeq, data)) {
+					if (std::find(recentlyCompleted.begin(), recentlyCompleted.end(), msgKey) != recentlyCompleted.end()) {
 						std::string finalAck = buildACK(seq, 0, ACK_COMPLETE);
-						sendto(sockfd, finalAck.data(), finalAck.size(), 0, (sockaddr*)&master_addr, masterLen);
-
-						int rows = 0, cols = 0;
-						std::memcpy(&rows, &data[0], sizeof(int));
-						std::memcpy(&cols, &data[4], sizeof(int));
-
-						auto result = py::array_t<float>({rows, cols});
-						float* ptr = static_cast<float*>(result.request().ptr);
-						std::memcpy(ptr, &data[8], rows * cols * sizeof(float));
-						return result;
+						sendto(sockfd, finalAck.data(), UDP_PACKET_SIZE, 0, (sockaddr*)&master_addr, masterLen);
+						continue;
 					}
+
+					if (!isDuplicate(msgKey, frag)) {
+						storeFragment(msgKey, frag, tot, payload);
+					}
+
+					std::string ack = buildACK(seq, frag, ACK_OK);
+					sendto(sockfd, ack.data(), UDP_PACKET_SIZE, 0, (sockaddr*)&master_addr, masterLen);
+
+					if (messageComplete(msgKey)) {
+						std::string fullMsg = rebuildMessage(msgKey);
+						recentlyCompleted.push_back(msgKey);
+						if (recentlyCompleted.size() > 100) {
+							recentlyCompleted.erase(recentlyCompleted.begin());
+						}
+
+						int msgSeq; std::string data;
+						if (extractMessage(fullMsg, msgSeq, data)) {
+							std::string finalAck = buildACK(seq, 0, ACK_COMPLETE);
+							sendto(sockfd, finalAck.data(), UDP_PACKET_SIZE, 0, (sockaddr*)&master_addr, masterLen);
+
+							serialized_data = data;
+							found = true;
+						}
+					}
+				} else {
+					// CRC Validation failed. Send NACK
+					int netBadSeq = 0, netBadFrag = 0;
+					std::memcpy(&netBadSeq, &buffer[DG_SEQ_OFF], sizeof(int));
+					std::memcpy(&netBadFrag, &buffer[DG_FRAG_OFF], sizeof(int));
+					int badSeq = ntohl(netBadSeq);
+					int badFrag = ntohl(netBadFrag);
+
+					std::cout << "[C++] CRC error detected on fragment " << (badFrag + 1) << ". Sending NACK...\n";
+
+					std::string nack = buildACK(badSeq, badFrag, ACK_ERROR);
+					sendto(sockfd, nack.data(), UDP_PACKET_SIZE, 0, (sockaddr*)&master_addr, masterLen);
 				}
 			}
 		}
 	}
+
+	// Now with GIL re-acquired: reconstruct py::array_t
+	int rows = 0, cols = 0;
+	std::memcpy(&rows, &serialized_data[0], sizeof(int));
+	std::memcpy(&cols, &serialized_data[4], sizeof(int));
+
+	auto result = py::array_t<float>({rows, cols});
+	float* ptr = static_cast<float*>(result.request().ptr);
+	std::memcpy(ptr, &serialized_data[8], rows * cols * sizeof(float));
+	return result;
 }

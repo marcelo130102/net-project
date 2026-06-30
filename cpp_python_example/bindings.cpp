@@ -25,12 +25,12 @@ PYBIND11_MODULE(modulo, m) {
 	m_calc.def("matrix_dot", &calculator::matrix_dot, "Matrix multiplication (dot product)");
 
 	py::class_<NetMaster>(m, "NetMaster")
-		.def(py::init<int, int>())
+		.def(py::init<int, int>(), py::call_guard<py::gil_scoped_release>())
 		.def("send_matrix", &NetMaster::send_matrix)
 		.def("receive_matrix", &NetMaster::receive_matrix);
 
 	py::class_<NetSlave>(m, "NetSlave")
-		.def(py::init<const std::string&, int>())
+		.def(py::init<const std::string&, int>(), py::call_guard<py::gil_scoped_release>())
 		.def("send_matrix", &NetSlave::send_matrix)
 		.def("receive_matrix", &NetSlave::receive_matrix);
 }

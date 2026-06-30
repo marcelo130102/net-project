@@ -9,6 +9,7 @@
 #include <vector>
 #include <string>
 #include <map>
+#include "protocol.hpp"
 
 namespace py = pybind11;
 
@@ -17,8 +18,9 @@ class NetMaster {
 	int num_slaves;
 	int tx_sequence;
 	std::vector<sockaddr_in> client_addrs;
-	std::vector<int> recentlyCompleted;
-	std::map<int, std::string> completed_matrices; // to save tmp slave_dix - serial data
+	std::vector<RTTMetrics> client_metrics;
+	std::vector<std::string> recentlyCompleted;
+	std::map<int, std::string> completed_matrices; // slave_idx -> serial data
 
 public:
 	NetMaster(int port, int num_slaves);
