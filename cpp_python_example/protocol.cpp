@@ -9,7 +9,7 @@
 
 using namespace std;
 
-// El mapa ahora utiliza un string compuesto "IP:PUERTO:SEQ" para aislar sockets de clientes simultáneos
+
 map<string, PendingMessage> pendingMessages;
 
 // Implementación estándar y robusta del algoritmo CRC32 (División polinómica)
@@ -115,7 +115,17 @@ string buildDatagram(int sequence, int fragment, int totalFragments, const strin
     int crc = calculateCRC(output.data(), UDP_PACKET_SIZE - CRC_SIZE);
     int netCrc = htonl(crc);
     memcpy(&output[UDP_PACKET_SIZE - CRC_SIZE], &netCrc, sizeof(int));
-
+    if (fragment == 0 || fragment == totalFragments - 1) {
+        cout << "[DEBUG] Datagrama " << (fragment == 0 ? "PRIMERO" : "ÚLTIMO") 
+             << " | Seq: " << sequence 
+             << " | Frag: " << fragment 
+             << " | Payload: >>" << payload << "<<" << endl;
+    }
+/*
+if (fragment == 0 || fragment == totalFragments - 1) {
+        cout << "[DEBUG] Datagrama (" << (fragment == 0 ? "PRIMERO" : "ÚLTIMO") 
+             << "): >>" << payload << "<<" << endl;
+    }*/
     return output;
 }
 

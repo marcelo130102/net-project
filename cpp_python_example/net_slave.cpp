@@ -5,6 +5,13 @@
 #include "net_slave.hpp"
 #include "protocol.hpp"
 
+// --- FLAGS GLOBALES PARA PRUEBAS (Cámbialos a true para probar) ---
+bool test_loss_slave = true;
+bool test_corrupt_slave = true;
+bool test_timeout_slave = true;
+
+
+
 NetSlave::NetSlave(const std::string& ip, int port) : tx_sequence(0), my_slave_idx(-1) {
 	sockfd = socket(AF_INET, SOCK_DGRAM, 0);
 	if (sockfd < 0) {
@@ -87,11 +94,41 @@ void NetSlave::send_matrix(py::array_t<float> matrix) {
 				std::string datagram = buildDatagram(proto_seq, i, fragments.size(), fragments[i]);
 				auto timeStart = std::chrono::steady_clock::now();
 
-				sendto(sockfd, datagram.data(), datagram.size(), 0, (sockaddr*)&master_addr, masterLen);
+
+				// ==========================================
+				bool enviarPaqueteNormal = true;
+				
+
+				static bool perdidaInyectada = false;
+
+				if (test_loss_slave && i == 1 && metrics.backoffCount == 0 && !perdidaInyectada) {
+					std::cout << "   >> [TEST PÉRDIDA SLAVE] Tirando fragmento " << (i + 1) << " a la basura para forzar Timeout...\n";
+					enviarPaqueteNormal = false; 
+					perdidaInyectada = true; // Se vuelve true y nunca más volverá a entrar aquí
+				}
+				
+				static bool corromperFragmento = true;
+				if (test_corrupt_slave && i == 3 && corromperFragmento) {
+					std::cout << "   >> [TEST CORRUPCIÓN SLAVE] Alterando bits del fragmento " << (i + 1) << " para romper el CRC...\n";
+					datagram[DG_DATA_OFF] ^= 0xFF;
+					corromperFragmento = false;
+				}
+
+				if (enviarPaqueteNormal) {
+					sendto(sockfd, datagram.data(), datagram.size(), 0, (sockaddr*)&master_addr, masterLen);
+				}
 
 				char buffer[UDP_PACKET_SIZE];
 				memset(buffer, 0, UDP_PACKET_SIZE);
 				int n = recvfrom(sockfd, buffer, UDP_PACKET_SIZE, 0, nullptr, nullptr);
+
+				// ==========================================
+				static bool ignorarAckUnaVez = true;
+				if (test_timeout_slave && i == 5 && ignorarAckUnaVez && n > 0) {
+					std::cout << "   >> [TEST ACK PERDIDO SLAVE] Ignorando el ACK del fragmento " << (i + 1) << " para obligar a retransmitir...\n";
+					ignorarAckUnaVez = false;
+					n = -1; 
+				}
 
 				if (n == UDP_PACKET_SIZE && buffer[0] == TYPE_ACK) {
 					int ackSeq, ackFrag; char ackStatus;
@@ -111,12 +148,17 @@ void NetSlave::send_matrix(py::array_t<float> matrix) {
 					}
 				} else {
 					if (n < 0) {
-						applyBackoff(metrics);
-						if (metrics.timeout > 2.0) {
-							metrics.timeout = 2.0;
-						}
-						std::cout << "[C++] Timeout. Retransmitting fragment " << (i + 1) << " with backoff. Timeout: " << metrics.timeout * 1000.0 << " ms...\n";
-					}
+                        applyBackoff(metrics);
+
+                        if (metrics.backoffCount > 5) {
+                            throw std::runtime_error("Master desconectado. Limite de reintentos de envio superado.");
+                        }
+                        
+                        if (metrics.timeout > 2.0) {
+                            metrics.timeout = 2.0;
+                        }
+                        std::cout << "[C++] Timeout. Retransmitting fragment " << (i + 1) << " with backoff. Timeout: " << metrics.timeout * 1000.0 << " ms...\n";
+                    }
 				}
 			}
 		}
@@ -151,17 +193,23 @@ py::array_t<float> NetSlave::receive_matrix() {
 	{
 		py::gil_scoped_release release;
 		applySocketTimeout(sockfd, 1.0);
-
+	int timeout_counter = 0; // CONTADOR
 		while (!found) {
 			cleanupZombieMessages();
 
 			char buffer[UDP_PACKET_SIZE];
 			memset(buffer, 0, UDP_PACKET_SIZE);
 			int n = recvfrom(sockfd, buffer, UDP_PACKET_SIZE, 0, nullptr, nullptr);
-
 			if (n <= 0) {
+	
+                timeout_counter++;
+                if (timeout_counter > 10) { // Aprox 10 segundos inactivos
+                    throw std::runtime_error("Master desconectado. Tiempo de espera de recepcion agotado.");
+                }
+  
 				continue;
 			}
+			timeout_counter = 0; 
 
 			if (n == UDP_PACKET_SIZE && buffer[0] == TYPE_DATAGRAM) {
 				int seq, frag, tot;
