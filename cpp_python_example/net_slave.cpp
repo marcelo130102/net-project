@@ -111,12 +111,19 @@ void NetSlave::send_matrix(py::array_t<float> matrix) {
 					}
 				} else {
 					if (n < 0) {
-						applyBackoff(metrics);
-						if (metrics.timeout > 2.0) {
-							metrics.timeout = 2.0;
-						}
-						std::cout << "[C++] Timeout. Retransmitting fragment " << (i + 1) << " with backoff. Timeout: " << metrics.timeout * 1000.0 << " ms...\n";
-					}
+                        applyBackoff(metrics);
+
+                        // --- NUEVO: Límite de reintentos de envío ---
+                        if (metrics.backoffCount > 5) {
+                            throw std::runtime_error("Master desconectado. Limite de reintentos de envio superado.");
+                        }
+                        // --------------------------------------------
+
+                        if (metrics.timeout > 2.0) {
+                            metrics.timeout = 2.0;
+                        }
+                        std::cout << "[C++] Timeout. Retransmitting fragment " << (i + 1) << " with backoff. Timeout: " << metrics.timeout * 1000.0 << " ms...\n";
+                    }
 				}
 			}
 		}
@@ -151,7 +158,7 @@ py::array_t<float> NetSlave::receive_matrix() {
 	{
 		py::gil_scoped_release release;
 		applySocketTimeout(sockfd, 1.0);
-
+	int timeout_counter = 0; // CONTADOR
 		while (!found) {
 			cleanupZombieMessages();
 
@@ -160,8 +167,15 @@ py::array_t<float> NetSlave::receive_matrix() {
 			int n = recvfrom(sockfd, buffer, UDP_PACKET_SIZE, 0, nullptr, nullptr);
 
 			if (n <= 0) {
+				// --- NUEVO: Abortar si esperamos demasiado sin respuesta ---
+                timeout_counter++;
+                if (timeout_counter > 10) { // Aprox 10 segundos inactivos
+                    throw std::runtime_error("Master desconectado. Tiempo de espera de recepcion agotado.");
+                }
+                // -----------------------------------------------------------
 				continue;
 			}
+			timeout_counter = 0; // --- NUEVO: Resetear si llega un paquete ---
 
 			if (n == UDP_PACKET_SIZE && buffer[0] == TYPE_DATAGRAM) {
 				int seq, frag, tot;
