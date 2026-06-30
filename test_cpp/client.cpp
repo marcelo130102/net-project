@@ -23,6 +23,11 @@ void applySocketTimeout(int sockfd, double timeoutSec) {
     setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 }
 
+// Global flags for fault injection testing
+bool test_loss = false;
+bool test_corrupt = false;
+bool test_timeout = false;
+
 bool sendMessageUDP(int sockfd, sockaddr_in &destAddr, int sequence, const string &data) {
     string msgStr = buildMessage(sequence, data);
     vector<string> fragments = fragmentMessage(msgStr);
@@ -43,15 +48,41 @@ bool sendMessageUDP(int sockfd, sockaddr_in &destAddr, int sequence, const strin
             cout << "[CLIENT] Enviando fragmento " << (i + 1) << " / " << fragments.size() 
                  << " [Timeout actual: " << metrics.timeout * 1000.0 << " ms]...\n";
 
+            bool enviarPaqueteNormal = true;
+            
+            // Inyectar pérdida
+            if (test_loss && i == 1 && metrics.backoffCount == 0) {
+                cout << "   >> [TEST PÉRDIDA] Tirando fragmento " << (i + 1) << " a la basura para forzar Timeout...\n";
+                enviarPaqueteNormal = false; 
+            }
+            
+            // Inyectar corrupción
+            static bool corromperFragmento4 = true;
+            if (test_corrupt && i == 3 && corromperFragmento4) {
+                cout << "   >> [TEST CORRUPCIÓN] Alterando bits del fragmento " << (i + 1) << " para romper el CRC...\n";
+                datagram[DG_DATA_OFF] ^= 0xFF;
+                corromperFragmento4 = false;
+            }
+
             // Registrar marca de tiempo inicial (Jacobson-Karels)
             auto timeStart = steady_clock::now();
 
-            sendto(sockfd, datagram.data(), UDP_PACKET_SIZE, 0, (sockaddr*)&destAddr, destLen);
+            if (enviarPaqueteNormal) {
+                sendto(sockfd, datagram.data(), UDP_PACKET_SIZE, 0, (sockaddr*)&destAddr, destLen);
+            }
 
             char buffer[UDP_PACKET_SIZE];
             memset(buffer, 0, UDP_PACKET_SIZE);
             
             int n = recvfrom(sockfd, buffer, UDP_PACKET_SIZE, 0, nullptr, nullptr);
+
+            // Inyectar pérdida de ACK (timeout)
+            static bool ignorarAckUnaVez = true;
+            if (test_timeout && i == 5 && ignorarAckUnaVez && n > 0) {
+                cout << "   >> [TEST ACK PERDIDO] Ignorando el ACK del fragmento " << (i + 1) << " para obligar a retransmitir un duplicado...\n";
+                ignorarAckUnaVez = false;
+                n = -1; // Forzamos un -1 para que salte al bloque 'else' de timeout
+            }
 
             if (n == UDP_PACKET_SIZE && buffer[0] == TYPE_ACK) {
                 int ackSeq, ackFrag; 
@@ -119,7 +150,13 @@ bool sendMessageUDP(int sockfd, sockaddr_in &destAddr, int sequence, const strin
     return true;
 }
 
-int main() {
+int main(int argc, char* argv[]) {
+    for (int i = 1; i < argc; ++i) {
+        if (strcmp(argv[i], "--test-loss") == 0) test_loss = true;
+        if (strcmp(argv[i], "--test-corrupt") == 0) test_corrupt = true;
+        if (strcmp(argv[i], "--test-timeout") == 0) test_timeout = true;
+    }
+
     int sockfd = socket(AF_INET, SOCK_DGRAM, 0);
     sockaddr_in serverAddr;
     memset(&serverAddr, 0, sizeof(serverAddr));
@@ -156,53 +193,4 @@ int main() {
 
 
 
-
-
-/*
-pruebas de fallas en el envio 
-
-            // =================================================================
-            // INYECTOR DE ERRORES ACADÉMICO (Casos de Prueba - Persona A)
-            // =================================================================
-            bool enviarPaqueteNormal = true;
-
-            // CASO 1: Simular Pérdida Física (Provoca TIMEOUT y BACKOFF)
-            // Forzamos la pérdida del Fragmento 2 en su primer intento (índice 1)
-            if (i == 1 && metrics.backoffCount == 0) {
-                cout << "   >> [TEST PÉRDIDA] Tirando fragmento " << (i + 1) << " a la basura para forzar Timeout...\n";
-                enviarPaqueteNormal = false; 
-            }
-
-            // CASO 2: Simular Corrupción de Datos (Provoca NACK en el Servidor)
-            // Alteramos un byte del payload del Fragmento 4 en su primer intento (índice 3)
-            static bool corromperFragmento4 = true;
-            if (i == 3 && corromperFragmento4) {
-                cout << "   >> [TEST CORRUPCIÓN] Alterando bits del fragmento " << (i + 1) << " para romper el CRC...\n";
-                datagram[DG_DATA_OFF] ^= 0xFF; // Invertimos bits para romper el CRC
-                corromperFragmento4 = false;   // ¡Desactivar para el siguiente intento!
-            }
-
-            // CASO 3: Simular Pérdida de ACK (Provoca DUPLICADOS en el Servidor)
-            // El servidor recibe el Fragmento 6 (índice 5), pero el cliente ignora el ACK una vez
-            static bool ignorarAckUnaVez = true;
-
-            // Registrar marca de tiempo inicial (Jacobson-Karels)
-            auto timeStart = steady_clock::now();
-
-            // Solo enviamos si el CASO 1 no lo bloqueó
-            if (enviarPaqueteNormal) {
-                sendto(sockfd, datagram.data(), UDP_PACKET_SIZE, 0, (sockaddr*)&destAddr, destLen);
-            }
-
-            char buffer[UDP_PACKET_SIZE];
-            memset(buffer, 0, UDP_PACKET_SIZE);
-            
-            int n = recvfrom(sockfd, buffer, UDP_PACKET_SIZE, 0, nullptr, nullptr);
-
-            // Inyección del CASO 3: Fingimos un timeout tirando el ACK real recibido
-            if (i == 5 && ignorarAckUnaVez && n > 0) {
-                cout << "   >> [TEST ACK PERDIDO] Ignorando el ACK del fragmento " << (i + 1) << " para obligar a retransmitir un duplicado...\n";
-                ignorarAckUnaVez = false;
-                n = -1; // Forzamos un -1 para que salte al bloque 'else' de timeout
-            }
-            // =================================================================*/
+

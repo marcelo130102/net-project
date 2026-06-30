@@ -160,9 +160,9 @@ for epoch in range(num_epochs):
 				if w_sum is None:
 					w_sum = w_slave
 				else:
-					w_sum += w_slave
+					w_sum = modulo.calculator.matrix_add(w_sum, w_slave)
 			# get avg
-			w_avg = w_sum / num_slaves
+			w_avg = modulo.calculator.matrix_scale(w_sum, 1.0 / num_slaves)
 			vector_to_model(w_avg, model)
 			print(f"loaded weights-sample:\n{w_avg[0][:4]}")
 
